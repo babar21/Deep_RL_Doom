@@ -206,10 +206,30 @@ class Experiment(object):
         self.initialize_game()
         
         
+        def observe_state(self, params, last_states):
+            """
+            Observe the current state of the game.
+            """
+            # read game state
+            screen, game_features = process_buffers(self, params)
+            variables = [self.properties[x[0]] for x in params.game_variables]
+            last_states.append(GameState(screen, variables, game_features))
+    
+            # update most recent states
+            if len(last_states) == 1:
+                last_states.extend([last_states[0]] * (params.hist_size - 1))
+            else:
+                assert len(last_states) == params.hist_size + 1
+                del last_states[0]
+    
+            # return the screen and the game features
+            return screen, game_features
+
+            
         def close(self):
-        """
-        Close the current experiment.
-        """
+            """
+            Close the current experiment.
+            """
             self.game.close()
             
         
