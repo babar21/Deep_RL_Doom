@@ -29,15 +29,16 @@ class DFP_agent(Agent):
             dico_init_policy
         """
         #Initialize params
-        #self.params = 
+        self.batch_size = 32
         self.step_btw_train = 64 
+        self.time_steps = [1,2,4,8,16,32]
         self.decrease_eps = 'function to decrease eps'
         self.max_size = dico_init_network['max_size']
         self.nb_action = ''
         self.network = create_network(image_params, measure_params, goal_params, expectation_params, 
                                action_params, optimizer_params, leaky_param)
 
-    
+        
     def act_opt(self, eps, screen, game_features, goal):
         """
         Choose action according to the eps-greedy policy using the network for inference
@@ -111,6 +112,7 @@ class DFP_agent(Agent):
             experiment.reset()   
             
             while not experiment.is_final():
+                
                 # get screen and features from the game 
                 screen, game_features = experiment.observe_state(self.params, last_states)
                 
@@ -128,6 +130,7 @@ class DFP_agent(Agent):
 
                 
                 # save last processed screens / features / action in the replay memory
+                
                 replay_mem.add( screen=input_screen,
                                 variables=None,
                                 features=input_game_features,
@@ -138,28 +141,31 @@ class DFP_agent(Agent):
                             )
                 
                 # train network if needed
-                if nb_step%self.step_btw_train :
+                if nb_step%self.step_btw_train==0 :
                     self.train_network(replay_mem)
-                
-                
-                # count nb of step since start
-                nb_step += 1
-      
+
+                # count nb of steps since start
+                nb_step += 1      
         
     def train_network(self, replay_memory):
         """
         train the network according to a batch size and a replay memory
         """
         #Load a batch from replay memory
+        #Remember to define self.batch_size
         train_set = replay_memory.get_batch(self.batch_size, 1, is_DFP=True)        
 
         #Store the training input
-        inputs = [train_set['screens'], train_set['actions'], train_set['goals']]
+        future_features = train_set['future_features']
+                
+        #Predict target
+        f_target = self.network.predict([train_set['screens'], train_set['features'], train_set['goals']])
+        for i in range(self.batch_size):
+            f_target[train_set['actions'][i]][i,:] = future_features[i]
         
-        #Fit the input
-        self.network.fit(inputs, train_set['features'])        
+        loss = self.network.fit([train_set['screens'], train_set['features'], train_set['goals']], f_target)
 
-        return
+        return loss
         
     def decrease_eps(self, step):
         return (0.02 + 145000. / (float(step) + 150000.))       
