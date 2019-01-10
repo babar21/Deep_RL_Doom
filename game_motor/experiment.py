@@ -248,6 +248,9 @@ class Experiment(object):
 
         # doom skill (https://zdoom.org/wiki/GameSkill)
         self.game.set_doom_skill(self.doom_skill + 1)
+        
+        # define basic rewards
+#        self.game.set_living_reward(self.living_reward)
 
         # start the game
         self.game.init()
@@ -345,7 +348,7 @@ class Experiment(object):
         # smooth visualization if needed
         if self.visible:
             for _ in range(frame_skip):
-                self.game.make_action(action)
+                r = self.game.make_action(action)
                 # death or episode finished
                 if self.is_player_dead() or self.is_episode_finished():
                     break
@@ -353,9 +356,9 @@ class Experiment(object):
                 if sleep is not None:
                     time.sleep(sleep)
         else:
-            self.game.make_action(action, frame_skip)
+            r = self.game.make_action(action, frame_skip)
         
-            
+        return r
         
 
 
