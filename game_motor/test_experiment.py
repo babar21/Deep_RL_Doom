@@ -24,6 +24,11 @@ game_variables = ['ENNEMY']
 scenario = 'basic'
 action_builder = Action(list_action)
 e = Experiment(scenario, action_builder, game_features = game_features, visible=True)
-e.start(2)
+#e.start(2)
 
-screen, variables, game_features = e.observe_state(game_variables, game_features)
+#screen, variables, game_features = e.observe_state(game_variables, game_features)
+
+#action = action_builder.doom_action[9]
+#tics = 1
+
+#r = e.game.make_action(action, tics)

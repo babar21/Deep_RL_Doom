@@ -78,6 +78,7 @@ class Experiment(object):
         scenario,
         action_builder,
         reward_values=None,
+        living_reward=-1,
         score_variable='FRAGCOUNT',
         freedoom=True,
         screen_resolution='RES_400X225',
@@ -157,6 +158,7 @@ class Experiment(object):
         # actor reward
         ''' used for reward shaping (LSTM & Curiosity A3C) '''
 #        self.reward_builder = RewardBuilder(self, reward_values)
+        self.living_reward = living_reward
         
         # number of bots in the game
         self.n_bots = n_bots
@@ -250,7 +252,7 @@ class Experiment(object):
         self.game.set_doom_skill(self.doom_skill + 1)
         
         # define basic rewards
-#        self.game.set_living_reward(self.living_reward)
+        self.game.set_living_reward(self.living_reward)
 
         # start the game
         self.game.init()
@@ -310,7 +312,7 @@ class Experiment(object):
         """
         assert self.is_episode_finished() or self.is_player_dead()
         self.game.new_episode()
-        self.log('New episode')
+#        self.log('New episode')
 #        self.initialize_game()
     
     def close(self):
@@ -320,12 +322,12 @@ class Experiment(object):
         self.game.close()
  
             
-    def observe_state(self, variables_names, features_name):
+    def observe_state(self, variable_names, feature_names):
         """
         Observe the current state of the game.
         """
         # read game state
-        screen, variables, game_features = process_game_info(self.game, variables_names, features_name)
+        screen, variables, game_features = process_game_info(self.game, variable_names, feature_names)
 #        last_states.append(GameState(screen, variables, game_features))
 
         # return the screen and the game features
@@ -339,6 +341,8 @@ class Experiment(object):
             action :
             frame_skips : nb of frames during which the same action is performed
             sleep : pause game for sleep seconds in order to smooth visualization
+        Output :
+            reward defined in the game motor
         """
         assert frame_skip >= 1
 
@@ -347,8 +351,9 @@ class Experiment(object):
         
         # smooth visualization if needed
         if self.visible:
+            r=0
             for _ in range(frame_skip):
-                r = self.game.make_action(action)
+                r += self.game.make_action(action)
                 # death or episode finished
                 if self.is_player_dead() or self.is_episode_finished():
                     break
@@ -369,7 +374,7 @@ def process_game_info(game, variables_names, features_name):
     Get state from the vizdoom game object
     """
     state = game.get_state()
-    n = state.number
+#    n = state.number
     screen = state.screen_buffer # retrieve the game screen in full definition and colors
     variables = get_variables(state, variables_names)
     game_features = get_features(game, features_name)
