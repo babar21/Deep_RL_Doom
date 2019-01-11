@@ -11,7 +11,7 @@ import numpy as np
 
 class ReplayMemory:
 
-    def __init__(self, max_size, screen_shape, n_variables, n_features, type_network):
+    def __init__(self, max_size, screen_shape, type_network, n_variables=0, n_features=0):
         """
         Create the replay memory class
         Inputs : 
@@ -20,7 +20,7 @@ class ReplayMemory:
             n_variables :
             n_features : nb of features used (for detection or to be used by the network)
         """
-        assert len(screen_shape) == 3
+#        assert len(screen_shape) == 3
         self.max_size = max_size
         self.screen_shape = screen_shape
         self.n_variables = n_variables
@@ -28,26 +28,28 @@ class ReplayMemory:
         self.cursor = 0
         self.full = False
         self.type_network = type_network
-        self.screens = np.zeros((max_size,) + screen_shape, dtype=np.uint8)
+        self.screens1 = np.zeros((max_size,) + screen_shape, dtype=np.uint8)
+        self.screens2 = np.zeros((max_size,) + screen_shape, dtype=np.uint8)
         if n_variables:
             self.variables = np.zeros((max_size, n_variables), dtype=np.int32)
         if n_features:
             self.features = np.zeros((max_size, n_features), dtype=np.int32)
-        self.actions = np.zeros(max_size, dtype=np.int32)
-        if n_features != 0 :
-            self.rewards = np.zeros((max_size, n_features), dtype=np.float32)
+            self.rewards = np.zeros((max_size, n_features), dtype=np.float32) # for DFP reward = features next state
         else :
             self.rewards = np.zeros(max_size, dtype=np.float32)
+        self.actions = np.zeros(max_size, dtype=np.int32)
         self.isfinal = np.zeros(max_size, dtype=np.bool)
 
     @property
     def size(self):
         return self.max_size if self.full else self.cursor
 
-    def add(self, screen, variables, features, action, reward, is_final):
+    def add(self, screen1, action, reward, is_final, variables=None, features=None, screen2=None):
         assert self.n_variables == 0 or self.n_variables == len(variables)
         assert self.n_features == 0 or self.n_features == len(features)
-        self.screens[self.cursor] = screen
+        self.screens1[self.cursor] = screen1
+        if not is_final:
+            self.screens2[self.cursor] = screen2
         if self.n_variables:
             self.variables[self.cursor] = variables
         if self.n_features:
@@ -98,7 +100,8 @@ class ReplayMemory:
             count += 1
 
         all_indices = idx.reshape((-1, 1)) + np.arange(-(hist_size - 1), 2)
-        screens = self.screens[all_indices]
+        screens1 = self.screens1[all_indices]
+        screens2 = self.screens2[all_indices]
         variables = self.variables[all_indices] if self.n_variables else None
         features = self.features[all_indices] if self.n_features else None
         actions = self.actions[all_indices[:, :-1]]
@@ -107,7 +110,8 @@ class ReplayMemory:
 
         # check batch sizes
         assert idx.shape == (batch_size,)
-        assert screens.shape == (batch_size, hist_size + 1) + self.screen_shape
+        assert screens1.shape == (batch_size,hist_size+1) + self.screen_shape
+        assert screens2.shape == (batch_size,hist_size+1) + self.screen_shape
         assert (variables is None or variables.shape == (batch_size,
                 hist_size + 1, self.n_variables))
         assert (features is None or features.shape == (batch_size,
@@ -117,10 +121,11 @@ class ReplayMemory:
         assert isfinal.shape == (batch_size, hist_size)
 
         return dict(
-            screens=screens,
+            screens1=screens1, # np.array batch_size*screen_size*screen_size*hist_size+1
             variables=variables,
             features=features,
             actions=actions,
             rewards=rewards,
-            isfinal=isfinal
+            isfinal=isfinal, 
+            screens2=screens2
         )
