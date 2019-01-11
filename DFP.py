@@ -21,7 +21,8 @@ class DFP_agent(Agent):
     DFP agent implementation (for more details, look at https://arxiv.org/abs/1611.01779)
     Subclass of Abstract class Agent
     """
-    def __init__(self, dico_init_network, dico_init_policy):
+#    def __init__(self, dico_init_network, dico_init_policy):
+    def __init__(self, dico_init_network):
         """
         Read bot parameters from different dicts and initialize the bot
         Inputs :
@@ -34,11 +35,23 @@ class DFP_agent(Agent):
         self.time_steps = [1,2,4,8,16,32]
         self.decrease_eps = 'function to decrease eps'
         self.max_size = dico_init_network['max_size']
-        self.nb_action = ''
-        self.network = create_network(image_params, measure_params, goal_params, expectation_params, 
-                               action_params, optimizer_params, leaky_param)
+        self.nb_action = dico_init_network['action_params']
+        self.episode_time = dico_init_network['params']['episode_time']
+        self.frame_skip = dico_init_network['params']['frame_skip']
+#        self.params = dico_init_network['params']['game_variables']
 
         
+        image_params = dico_init_network['image_params']
+        measure_params = dico_init_network['measure_params']
+        goal_params = dico_init_network['goal_params']
+        expectation_params = dico_init_network['expectation_params']
+        action_params = dico_init_network['action_params']
+        leaky_param = dico_init_network['leaky_param']
+        optimizer_params = dico_init_network['optimizer_params']
+       
+        self.network = self.create_network(image_params, measure_params, goal_params, expectation_params, 
+                               action_params, optimizer_params, leaky_param)
+
     def act_opt(self, eps, screen, game_features, goal):
         """
         Choose action according to the eps-greedy policy using the network for inference
@@ -89,7 +102,7 @@ class DFP_agent(Agent):
 
         # create game from experiment
         experiment.start(map_id=map_id,
-                        episode_time=self.params.episode_time,
+                        episode_time=self.episode_time,
                         log_events=False)
         
         # create replay memory
@@ -114,7 +127,8 @@ class DFP_agent(Agent):
             while not experiment.is_final():
                 
                 # get screen and features from the game 
-                screen, game_features = experiment.observe_state(self.params, last_states)
+#                screen, game_features = experiment.observe_state(self.params, last_states)
+                screen, game_variables, game_features = experiment.observe_state(self.params, last_states)
                 
                 # at each step, decrease eps according to a fixed policy
                 eps = self.decrease_eps(self, nb_step)
@@ -124,8 +138,10 @@ class DFP_agent(Agent):
                 action = self.act_opt(eps, input_screen, input_game_features, goal)
                 
                 # make action and observe resulting measurement (plays the role of the reward)
-                experiment.make_action(action, self.params.frame_skip)
-                screen, game_features = experiment.observe_state(self.params, last_states)
+                experiment.make_action(action, self.frame_skip)
+#                screen, game_features = experiment.observe_state(self.params, last_states)
+                screen, game_variables, game_features = experiment.observe_state(self.params, last_states)
+
                 input_screen_next, input_game_features_next = self.read_input_state(screen, game_features)
 
                 
@@ -254,8 +270,3 @@ class DFP_agent(Agent):
         model.compile(loss='mse', optimizer=optimizer)
         
         return model
-
-        
-
-        
-        
