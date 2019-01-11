@@ -14,7 +14,7 @@ Everything needed to run an experiment (ie a game) :
 import os
 from logging import getLogger
 import time
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 
 # ViZDoom library
 import vizdoom as vzd
@@ -28,7 +28,6 @@ logger = getLogger()
 GameState = namedtuple('State', ['screen', 'variables', 'features'])
 
 # Global variables 
-
 PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)),'experiments')
 
 GAME_FEATURES = {
@@ -39,6 +38,11 @@ GAME_FEATURES = {
     'sel_ammo': GameVariable.SELECTED_WEAPON_AMMO,
     'ammo': GameVariable.AMMO2,
     'shells': GameVariable.AMMO3,
+    'kill_count': GameVariable.KILLCOUNT,
+    'item_count' : GameVariable.ITEMCOUNT,
+    'death_count' : GameVariable.DEATHCOUNT,
+    'damage_count' : GameVariable.DAMAGE_TAKEN,
+    'hit_taken' : GameVariable.HITS_TAKEN
 }
 
 GAME_VARIABLES = {
@@ -70,23 +74,34 @@ EMBED_GAME_VARIABLES = {
         'AMMO' : 3
         }
 
+STAT_KEYS = ['kills', 'deaths', 'suicides', 'frag_count', 'k/d',
+             'medikit', 'armor', 'found_weapon', 'ammo']
+
+
 #%% Experiment class definition
 
 class Experiment(object):
+    """
+    Used to perform experiment combined with a Agent 
+    Main methods : 
+        - 
+    """
+    
     def __init__(
         self,
         scenario,
         action_builder,
-        reward_values=None,
-        living_reward=-1,
+        reward_builder,
+        living_reward=0,
+        custom_reward = False,
         score_variable='FRAGCOUNT',
+        game_features=[],
         freedoom=True,
         screen_resolution='RES_400X225',
         screen_format='CRCGCB',
         use_screen_buffer=True,
         use_depth_buffer=False,
         use_labels_buffer=True,
-        game_features=[],
         mode='PLAYER',
         player_rank=0, players_per_game=1,
         render_hud=False, render_minimal_hud=False,
@@ -102,9 +117,6 @@ class Experiment(object):
     ):
         """
         Create a new game.
-        score_variable: indicates in which game variable the user score is
-            stored. by default it's in FRAGCOUNT, but the score in ACS against
-            built-in AI bots can be stored in USER1, USER2, etc.
         render_decals: marks on the walls
         render_particles: particles like for impacts / traces
         render_effects_sprites: gun puffs / blood splats
@@ -157,8 +169,9 @@ class Experiment(object):
 
         # actor reward
         ''' used for reward shaping (LSTM & Curiosity A3C) '''
-#        self.reward_builder = RewardBuilder(self, reward_values)
+        self.reward_builder = reward_builder
         self.living_reward = living_reward
+        self.custom_reward = custom_reward
         
         # number of bots in the game
         self.n_bots = n_bots
@@ -172,8 +185,14 @@ class Experiment(object):
         
         # action builder
         self.action_builder = action_builder
-
         
+        # save game statistics for each episode (used for model comparison and reward shaping)
+        self.stats = {}
+
+#==============================================================================
+# Game start
+#==============================================================================       
+  
     def start(self, map_id, episode_time=None, log_events=False):
         """
         Start the game.
@@ -195,10 +214,13 @@ class Experiment(object):
 
         # time limit
         if episode_time is not None:
-            self.game.set_episode_timeout(int(35 * episode_time))
-
+            self.game.set_episode_timeout(episode_time)
+        
+        # Save statistics for this map
+        self.stats[self.map_id ]= []
+        
         # log events that happen during the game (useful for testing)
-        self.log_events = log_events
+#        self.log_events = log_events
 
         # game parameters
         args = []
@@ -223,7 +245,7 @@ class Experiment(object):
         # deathmatch mode
         # players will respawn automatically after they die
         # autoaim is disabled for all players
-        args.append('-deathmatch')
+#        args.append('-deathmatch')
         args.append('+sv_forcerespawn 1')
         args.append('+sv_noautoaim 1')
 
@@ -258,8 +280,105 @@ class Experiment(object):
         self.game.init()
 
         # initialize the game after player spawns
-#        self.initialize_game()
+        self.initialize_game()
+
+
+#==============================================================================
+# Game statistics
+#==============================================================================       
+  
+    def update_game_properties(self):
+        """
+        Update game properties.
+        """
+        # read game variables
+        new_v = {k: self.game.get_game_variable(v) for k, v in GAME_FEATURES.items()}
+        new_v = {k: (int(v) if v.is_integer() else float(v)) for k, v in new_v.items()}
         
+        # update game properties
+        self.prev_properties = self.properties
+        self.properties = new_v
+
+
+    def update_game_statistics(self):
+        """
+        Calculate game statistics and store them in the running stats dict
+        """
+        stats = self.run_stats
+        
+        # init r if custom rewards
+        r = []
+        
+        # calculate stats
+        # kill
+        d = self.properties['kill_count'] - self.prev_properties['kill_count']
+        if d > 0:
+            r.extend(d*['kill_count'])
+            stats['kills'] += d
+
+        # death
+        if self.game.is_player_dead():
+            r.append('dead')
+            stats['deaths'] += 1
+
+        # suicide
+        if self.properties['frag_count'] < self.prev_properties['frag_count']:
+            r.append('suicide')
+            stats['suicides'] += 1
+
+        # found health
+        d = self.properties['health'] - self.prev_properties['health']
+        if d != 0:
+            if d > 0:
+                r.append('medikit')
+                stats['medikit'] += 1
+        
+        # health lost
+        d = self.properties['damage_count'] - self.prev_properties['damage_count']
+        if d>0:
+            r.append('health_lost')
+
+        # found armor
+        d = self.properties['armor'] - self.prev_properties['armor']
+        if d != 0:
+            if d > 0:
+                r.append('armor')
+                stats['armor'] += 1
+            
+        # found weapon
+        if self.prev_properties['sel_weapon'] != self.properties['sel_weapon']:
+            r.append('weapon')
+            stats['found_weapon'] += 1
+
+        # found / lost ammo
+        d = self.properties['sel_ammo'] - self.prev_properties['sel_ammo']
+        if self.prev_properties['sel_weapon'] == self.properties['sel_weapon']:
+            if d != 0:
+                if d > 0:
+                    r.append('ammo')
+                    stats['ammo'] += 1
+                else:
+                    r.append('use_ammo')
+         
+        # auxiliary stats not used for rewards
+        stats['frag_count'] = self.properties['frag_count']
+        
+        
+        return r
+
+
+    def calculate_final_stats(self):
+        """
+        Calculate the final stats from the running stats
+        """
+        self.run_stats['k/d'] = self.run_stats['kills'] * 1.0 / max(1, self.run_stats['deaths'])
+        
+        
+        
+
+#==============================================================================
+# Game handling
+#==============================================================================       
         
     def is_player_dead(self):
         """
@@ -274,11 +393,13 @@ class Experiment(object):
         """
         return self.game.is_episode_finished()
 
+
     def is_final(self):
         """
         Return whether the game is in a final state.
         """
         return self.is_player_dead() or self.is_episode_finished()
+
     
     def reset(self):
         """
@@ -286,7 +407,7 @@ class Experiment(object):
             - we reach the end of an episode (we restart the game)
             - because the agent is dead (we make it respawn)
         """
-        self.count_non_forward_actions = 0
+        self.stats[self.map_id ].append(self.run_stats)
         # if the player is dead
         if self.is_player_dead():
             # respawn it (deathmatch mode)
@@ -301,26 +422,53 @@ class Experiment(object):
             self.new_episode()
 
         # deal with a ViZDoom issue
-        while self.is_player_dead():
-            logger.warning('Player %i is still dead after respawn.' %
-                           self.params.player_rank)
-            self.respawn_player()
+#        while self.is_player_dead():
+#            logger.warning('Player %i is still dead after respawn.' %
+#                           self.params.player_rank)
+#            self.respawn_player()
+
+    def respawn_player(self):
+        """
+        Respawn the player on death.
+        """
+        assert self.is_player_dead()
+        self.game.respawn_player()
+#        self.log('Respawn player')
+        self.initialize_game()
+
 
     def new_episode(self):
         """
         Start a new episode.
         """
-        assert self.is_episode_finished() or self.is_player_dead()
+        # init new stats for the episode
+        self.run_stats = {k: 0 for k in STAT_KEYS}
+        # init new game
         self.game.new_episode()
+        
+        # init episode properties
+        self.initialize_game()
+        
 #        self.log('New episode')
-#        self.initialize_game()
+        
+    def initialize_game(self):
+        """
+        Reset game properties
+        """
+        new_v = {k: self.game.get_game_variable(v) for k, v in GAME_FEATURES.items()}
+        new_v = {k: (int(v) if v.is_integer() else float(v)) for k, v in new_v.items()}
+        
+        self.stats
+        self.prev_properties = None
+        self.properties = new_v
+        
     
     def close(self):
         """
         Close the current experiment.
         """
         self.game.close()
- 
+
             
     def observe_state(self, variable_names, feature_names):
         """
@@ -334,7 +482,7 @@ class Experiment(object):
         return screen, variables, game_features
     
     
-    def make_action(self, action, frame_skip=1, sleep=None):
+    def make_action(self, action, variable_names, feature_names, frame_skip=1, sleep=None):
         """
         Process action and give the next state according to the game motor
         Inputs :
@@ -342,14 +490,17 @@ class Experiment(object):
             frame_skips : nb of frames during which the same action is performed
             sleep : pause game for sleep seconds in order to smooth visualization
         Output :
-            reward defined in the game motor
+            reward defined in the game motor or customized
+            screen          |
+            variables       | of the next state (if not final state)
+            game_features   |
         """
         assert frame_skip >= 1
 
         # convert selected action to the ViZDoom action format
         action = self.action_builder.get_action(action)
         
-        # smooth visualization if needed
+        # smooth visualization if needed for make
         if self.visible:
             r=0
             for _ in range(frame_skip):
@@ -363,7 +514,19 @@ class Experiment(object):
         else:
             r = self.game.make_action(action, frame_skip)
         
-        return r
+        # observe resulting state
+        if not self.is_final():
+            screen, variables, game_features = self.observe_state(variable_names, feature_names)
+        else :
+            screen = None
+            variables = None
+            game_features = None
+        # update game statistics and return custom rewards
+        self.update_game_properties()
+        list_r = self.update_game_statistics()
+        if self.custom_reward and self.reward_builder :
+            r = self.reward_builder.get_reward(list_r)
+        return r, screen, variables, game_features
         
 
 
@@ -435,3 +598,31 @@ def parse_game_features(s, logger):
         else:
             logger.warning("{} is not a feature available!".format(feature))
     return game_feature
+
+
+def process_game_statistics_raw(list_dict):
+    """
+    Flatten list of dict to get learning curve for all the parameters
+    """
+    result = defaultdict(list)
+    for dic in list_dict:
+        for key in STAT_KEYS:
+            result[key].append(dic[key])
+    return result
+        
+
+def process_game_statistics(dict_of_stats):   
+    """
+    Process stats for each maps processed
+    """
+    result = dict()
+    for map_id, list_dict in dict_of_stats.items():
+        result[map_id] = process_game_statistics_raw(list_dict)
+    return result
+    
+    
+    
+    
+    
+    
+    
