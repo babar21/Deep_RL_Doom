@@ -68,6 +68,7 @@ class DFP_agent(Agent):
         self.n_variables = len(self.variables)
         self.replay_memory = {'screen_shape': replay_memory['screen_shape'], 'n_variables': self.n_variables, 'n_features': self.n_features}
         self.image_size = self.replay_memory['screen_shape'][:2]
+        self.decrease_eps = decrease_eps
 
         # init network
         self.network = self.create_network(image_params, measure_params, goal_params, expectation_params, 
