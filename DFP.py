@@ -12,7 +12,9 @@ from keras.models import Model
 import numpy as np
 from utils_network import normalize_layer, get_optimizer
 from parsers import parse_image_params, parse_measure_params, parse_goal_params, parse_action_params, parse_expectation_params
-from replay_memory import ReplayMemory
+#from replay_memory import ReplayMemory
+from replay_memory_2 import ReplayMemory
+
 import cv2
 
 
@@ -33,13 +35,10 @@ class DFP_agent(Agent):
         self.batch_size = 32
         self.step_btw_train = 64 
         self.time_steps = [1,2,4,8,16,32]
-        self.decrease_eps = 'function to decrease eps'
         self.max_size = dico_init_network['max_size']
-        self.nb_action = dico_init_network['action_params']
+        self.nb_action = dico_init_network['action_params']['nb_actions']
         self.episode_time = dico_init_network['params']['episode_time']
         self.frame_skip = dico_init_network['params']['frame_skip']
-#        self.params = dico_init_network['params']['game_variables']
-
         
         image_params = dico_init_network['image_params']
         measure_params = dico_init_network['measure_params']
@@ -48,11 +47,19 @@ class DFP_agent(Agent):
         action_params = dico_init_network['action_params']
         leaky_param = dico_init_network['leaky_param']
         optimizer_params = dico_init_network['optimizer_params']
+    
+#        self.replay_memory = {'screen_shape': (84,84,1), 'n_variables': 8, 'n_features': 3}
+        n_variables = len(dico_init_network['variables_names'])
+        self.replay_memory = {'screen_shape': (84,84,4), 'n_variables': n_variables, 'n_features': 3}
+        self.image_size = self.replay_memory['screen_shape'][:2]
+        self.variables_names = dico_init_network['variables_names']        
+        self.features_names = dico_init_network['features_names']
        
         self.network = self.create_network(image_params, measure_params, goal_params, expectation_params, 
                                action_params, optimizer_params, leaky_param)
 
-    def act_opt(self, eps, screen, game_features, goal):
+
+    def act_opt(self, eps, input_screen, input_game_features, goal):
         """
         Choose action according to the eps-greedy policy using the network for inference
         Inputs : 
@@ -63,30 +70,63 @@ class DFP_agent(Agent):
         Returns an action coded by an integer
         """
         # eps-greedy policy used for exploration (if want full exploitation, just set eps to 0)
-        if np.random.rand() < eps :
+        if (np.random.rand() < eps) or (input_screen.shape[-1]<4):
             action = np.random.randint(0,self.nb_action)
         else :
             # use trained network to choose action
-            pred_measure = self.network.predict([input_screen, input_game_features, goal])
-            pred_measure_calc = np.reshape(pred_measure, (nb_actions, len(goal_calc)))
-            list_act = np.dot(pred_measure_calc,goal_calc)
+            pred_measure = self.network.predict([input_screen[None,:,:,:], input_game_features, goal])
+            pred_measure_calc = np.reshape(pred_measure, (self.nb_action, len(goal)))
+#            pred_measure_calc = np.reshape(pred_measure, (self.nb_action, len(goal_calc)))
+#            list_act = np.dot(pred_measure_calc,goal_calc)
+            list_act = np.dot(pred_measure_calc,goal)
             action = np.argmax(list_act)
         
         return action
+
+#    def act_opt(self,eps, input_screen):
+#        """
+#        Choose action according to the eps-greedy policy using the network for inference
+#        Inputs : 
+#            eps : eps parameter for the eps-greedy policy
+#            goal : column vector encoding the goal for each timesteps and each measures
+#            screen : raw input from the game
+#            game_features : raw features from the game
+#        Returns an action coded by an integer
+#        """        
+#        # eps-greedy policy used for exploration (if want full exploitation, just set eps to 0)
+#        if (np.random.rand() < eps) or (input_screen.shape[-1]<4):  # if not enough episode collected, act randomly
+#            action = np.random.randint(0,self.nb_action)
+#        else :
+#            # use trained network to choose action
+##            print('using network')
+##            print('input dim : {}'.format(input_screen[None,:,:,:].shape))
+#            pred_q = self.network.predict(input_screen[None,:,:,:])
+##            print(pred_q.shape)
+#            action = np.argmax(pred_q)
+#        
+#        return action
     
-    
-    def read_input_state(self, screen, game_features):
+    def read_input_state(self, screen, last_states, game_features, after=False):
         """
         Use grey level image and specific image definition
         """
+        if screen.shape[-1] != 3:
+            screen = np.moveaxis(screen,0,-1)
+
         input_screen = cv2.cvtColor(screen, cv2.COLOR_BGR2GRAY)
-        input_screen = cv2.resize(input_screen, (self.image_size, self.image_size))
-        input_game_features = np.zeros(len(self.game_features))
+        input_screen = cv2.resize(input_screen, self.image_size)
+        input_game_features = np.zeros(len(game_features))
         i=0
-        for features in self.game_features :
+        for features in game_features :
             input_game_features[i] = game_features[features]
             i +=1
-        return input_screen, input_game_features
+        
+        if not after:
+            last_states.append(input_screen)
+            return screen, input_game_features
+        
+        else:
+            return input_screen, input_game_features
     
     
     def train(self, experiment, nb_episodes, map_id, goal_mode='fixed'):
@@ -97,6 +137,7 @@ class DFP_agent(Agent):
             experiment : object from the experiment class, which contains the game motor
         """
         # variables
+        
         last_states = []
         nb_step = 0
 
@@ -106,8 +147,10 @@ class DFP_agent(Agent):
                         log_events=False)
         
         # create replay memory
-        replay_mem = ReplayMemory(self.max_size, self.replay_memory['screen_shape'], self.replay_memory['n_variables'], 
-                                  self.replay_memory['n_features'], is_DFP=True)
+#        replay_mem = ReplayMemory(self.max_size, self.replay_memory['screen_shape'], self.replay_memory['n_variables'], 
+#                                  self.replay_memory['n_features'], is_DFP=True)
+        self.replay_mem = ReplayMemory(self.max_size, self.replay_memory['screen_shape'][:2], type_network='DFP', n_variables=self.replay_memory['n_variables'], 
+                                  n_features=self.replay_memory['n_features'], n_goals=3)
         
         # run training
         for episode in range(nb_episodes):
@@ -115,7 +158,7 @@ class DFP_agent(Agent):
             #Initialize goal for each episode
             assert goal_mode in ['fixed', 'random_1', 'random_2']
             if goal_mode == 'fixed':
-                goal = np.asarray([0.5, 0.5, 1])
+                goal = np.array([0.5, 0.5, 1])
             if goal_mode == 'random_1':
                 goal = np.random.uniform(0, 1, size=3)
             if goal_mode == 'random_2':
@@ -125,40 +168,60 @@ class DFP_agent(Agent):
             experiment.reset()   
             
             while not experiment.is_final():
-                
+#                print(experiment.is_final())
                 # get screen and features from the game 
 #                screen, game_features = experiment.observe_state(self.params, last_states)
-                screen, game_variables, game_features = experiment.observe_state(self.params, last_states)
+                screen, game_variables, game_features = experiment.observe_state(self.variables_names, self.features_names)
                 
                 # at each step, decrease eps according to a fixed policy
-                eps = self.decrease_eps(self, nb_step)
+                eps = self.decrease_eps(nb_step)
                 
                 # choose action
-                input_screen, input_game_features = self.read_input_state(screen, game_features)
+                input_screen, input_game_features = self.read_input_state(screen, last_states, game_features)
+#                print(input_screen.shape)
+#                print(input_game_features.shape)
                 action = self.act_opt(eps, input_screen, input_game_features, goal)
                 
                 # make action and observe resulting measurement (plays the role of the reward)
-                experiment.make_action(action, self.frame_skip)
+                r = experiment.make_action(action, self.frame_skip)
 #                screen, game_features = experiment.observe_state(self.params, last_states)
-                screen, game_variables, game_features = experiment.observe_state(self.params, last_states)
-
-                input_screen_next, input_game_features_next = self.read_input_state(screen, game_features)
+                if not experiment.is_final():
+                    screen_next, game_variables_next, game_features_next = experiment.observe_state(self.variables_names, self.features_names)
+                    input_screen_next, input_game_features_next = self.read_input_state(screen, last_states, game_features, after=True)
+  
+                else:
+                    input_screen_next = None
+                    input_game_features_next = None
+ 
+                self.replay_mem.add( screen1=last_states[-1],
+                                action=action,
+                                reward=r,
+                                features=input_game_features_next,
+                                variables = [v for v in game_variables.values()],
+                                is_final=experiment.is_final(),
+                                screen2=input_screen_next,
+                                goals=goal
+)
 
                 
                 # save last processed screens / features / action in the replay memory
-                
-                replay_mem.add( screen=input_screen,
-                                variables=None,
-                                features=input_game_features,
-                                action=action,
-                                reward=input_game_features_next,
-                                is_final=self.game.is_final(), 
-                                goal=goal
-                            )
-                
+
+##replay_mem_v1
+#                replay_mem.add( screen=screen,
+#                                variables=[v for v in game_variables.values()],
+#                                features=input_game_features,
+#                                action=action,
+#                                reward=input_game_features_next,
+#                                is_final=experiment.is_final(), 
+#                                goal=goal
+#                            )
+
+   
+#                print(nb_step)
                 # train network if needed
-                if nb_step%self.step_btw_train==0 :
-                    self.train_network(replay_mem)
+                if nb_step >=10:
+                    if nb_step%self.step_btw_train==0 :
+                        self.train_network(self.replay_mem)
 
                 # count nb of steps since start
                 nb_step += 1      
@@ -167,24 +230,62 @@ class DFP_agent(Agent):
         """
         train the network according to a batch size and a replay memory
         """
+        print('entering train_network')
         #Load a batch from replay memory
-        #Remember to define self.batch_size
-        train_set = replay_memory.get_batch(self.batch_size, 1, is_DFP=True)        
-
+        hist_size = self.time_steps
+        batch = replay_memory.get_batch(self.batch_size, hist_size)        
+        print('got batch')
         #Store the training input
-        future_features = train_set['future_features']
-                
-        #Predict target
-        f_target = self.network.predict([train_set['screens'], train_set['features'], train_set['goals']])
+        #future_features = train_set['future_features']
+        input_goals = np.zeros((self.batch_size, 18))
+        input_features = np.zeros((self.batch_size, 3))
+        future_features = np.zeros((self.batch_size, len(hist_size)-1, 3))
+#        print(len(hist_size))
+#        print(train_set['features'][0][1:].shape)
         for i in range(self.batch_size):
-            f_target[train_set['actions'][i]][i,:] = future_features[i]
+            input_goals[i] = batch['goals'][i][1:].flatten()
+            
+            future_features[i] = batch['features'][i][1:]
+            input_features[i] = batch['features'][i][0]
+        print('got future features')
         
-        loss = self.network.fit([train_set['screens'], train_set['features'], train_set['goals']], f_target)
+        input_screen1 = np.moveaxis(batch['screens1'],1,-1)
+        input_screen2 = np.moveaxis(batch['screens2'],1,-1)
+        #Predict target
+        print(input_screen1.shape)
+        print(input_screen2.shape)
+        print(future_features.shape)
+        print(batch['goals'][0][1:].shape)
+        print(input_goals[0].shape)
+        f_target = self.network.predict([input_screen1[:,:,:,0].reshape(32, 84, 84, 1), input_features, input_goals])
+        print(f_target.shape)
+        print(batch['actions'][0])
+        for i in range(self.batch_size):
+#            f_target[train_set['actions'][i]][i,:] = future_features[i]
+            f_target[batch['actions'][i]][i,:] = future_features[i]
+        
+        loss = self.network.train_on_batch([input_screen1[:,:,:,0].reshape(32, 84, 84, 1), input_features, input_goals], f_target)
+
+#        input_screen1 = np.moveaxis(batch['screens1'],1,-1)
+#        input_screen2 = np.moveaxis(batch['screens2'],1,-1)
+#        reward = batch['rewards'][:,-1]
+#        isfinal = batch['isfinal'][:,-1]
+#        action = batch['actions'][:,-1]
+#        
+#        # compute target values
+#        q2 = np.max(self.network.predict(input_screen2), axis=1)
+##        print('q2 shape is {}'.format(q2.shape))
+#        target_q = self.network.predict(input_screen1)
+##        print('tq shape is {}'.format(target_q.shape))
+#        target_q[range(target_q.shape[0]), action] = reward + self.discount_factor * (1 - isfinal) * q2
+#        
+#        # compute the gradient and update the weights
+#        loss = self.network.train_on_batch(input_screen1, target_q)        
 
         return loss
         
     def decrease_eps(self, step):
-        return (0.02 + 145000. / (float(step) + 150000.))       
+         return (0.02 + 145000. / (float(step) + 150000.))       
         
 
     @staticmethod    

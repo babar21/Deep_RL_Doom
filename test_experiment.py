@@ -8,8 +8,8 @@ Created on Mon Jan  7 16:06:17 2019
 
 from experiment import Experiment
 from actions_builder import Action
-#from keras.optimizers import SGD, Adam, rmsprop
-#from DFP import DFP_agent
+from keras.optimizers import SGD, Adam, rmsprop
+from DFP import DFP_agent
 # variables
 list_action = ['MOVE_BACKWARD',
                 'MOVE_LEFT',
@@ -20,7 +20,7 @@ list_action = ['MOVE_BACKWARD',
                 'MOVE_FORWARD',
                 'MOVE_RIGHT',
                 'test']
-game_features = ['frag_count','health']
+game_features = ['frag_count','health','armor']
 game_variables = ['ENNEMY']
 scenario = 'basic'
 EMBED_GAME_VARIABLES = {
@@ -32,9 +32,8 @@ EMBED_GAME_VARIABLES = {
 
 action_builder = Action(list_action)
 e = Experiment(scenario, action_builder, game_features = game_features, visible=True)
-e.start(4, episode_time=9)
-
-screen, variables, game_features = e.observe_state(game_variables, game_features)
+#e.start(4, episode_time=9)
+#screen, variables, game_features = e.observe_state(game_variables, game_features)
 
 
 dico_init_network = {}
@@ -47,7 +46,9 @@ dico_init_network['max_size'] = 20000
 dico_init_network['leaky_param'] = 0.2
 #learning_rate = 0.00001
 dico_init_network['optimizer_params'] = {'type': 'adam'}
-dico_init_network['params'] = {'episode_time': 1000, 'frame_skip': 4, 'game_variables': game_variables}
+dico_init_network['params'] = {'episode_time': 1000, 'frame_skip': 4, 'game_variables': game_variables, 'game_features': game_features}
+dico_init_network['variables_names'] = game_variables
+dico_init_network['features_names'] = game_features
 #dico_init_policy = {}
 
 nb_episodes = 10
