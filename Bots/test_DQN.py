@@ -1,63 +1,95 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Jan 10 18:30:35 2019
-
-@author: bastien
+Test file for vanilla DQN
 """
-s1 = dict()
-s2 = dict()
-s3 = dict()
-s1['channel']=32
-s1['kernel']=8
-s1['stride']=4
-
-s2['channel']=64
-s2['kernel']=4
-s2['stride']=2
-s3['channel']=64
-s3['kernel']=3
-s3['stride']=1
-
-image_params = {'screen_input_size' : (84,84,4),
-                's1' : s1,
-                's2' : s2,
-                's3' : s3
-        }
-
-
+#%% Import
+from game_motor.experiment import Experiment, process_game_statistics
+from game_motor.actions_builder import Action
+from game_motor.reward import Reward
 from DQN import DQN_agent
-from replay_memory import ReplayMemory
+import matplotlib.pyplot as plt
+import pickle
 
-a = DQN_agent(image_params)
-#replay_mem = ReplayMemory(a.replay_memory['max_size'], 
-#                          a.replay_memory['screen_shape'], 
-#                          a.replay_memory['n_variables'], 
-#                          a.replay_memory['n_features'],
-#                          type_network ='DQN')
-#        
+#%% Logger
+import logging
+from logging import FileHandler
+
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s :: %(levelname)s :: %(message)s')
+file_handler = FileHandler('activity.log')
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+#%% Define the environment
+list_action =[
+		'MOVE_LEFT', 
+		'MOVE_RIGHT', 
+		'ATTACK']
+
+screen_resolution = 'RES_160X120'
+living_reward = -1
+
+action_builder = Action(list_action) # create actions
+
+reward_builder = Reward() # default rewards
+custom_reward=False
+
+game_features = ['frag_count','health']
+game_variables = ['HEALTH']
+
+scenario = 'simpler_basic'
+
+experiment = Experiment(scenario, action_builder,reward_builder, logger,
+               custom_reward=custom_reward,living_reward=living_reward, game_features = game_features, visible=False)
+
+#%% Define the agent
+screen_shape = (84,84)
+depth = 4
+image_params = {'screen_input_size' : screen_shape + (depth,)}
+n_actions = action_builder.n_actions
+#decrease_eps = lambda step : 0.02 + 145000. / (float(step) + 150000.)
+
+def exploration_rate(epoch, nb_episode):
+        """# Define exploration rate change over time"""
+        start_eps = 1.0
+        end_eps = 0.1
+        const_eps_epochs = 0.1 * nb_episode # 10% of learning time
+        eps_decay_epochs = 0.6 * nb_episode  # 60% of learning time
+
+        if epoch < const_eps_epochs:
+            return start_eps
+        elif epoch < eps_decay_epochs:
+            # Linear decay
+            return start_eps + (epoch - const_eps_epochs)/(const_eps_epochs - 
+                                           eps_decay_epochs) * (start_eps - end_eps)
+        else:
+            return end_eps
+
+
+map_id = 1
+nb_episodes = 800000
+nb_episodes_test = 5
+decrease_eps = lambda eps : exploration_rate(eps, nb_episodes)
+
+agent = DQN_agent(image_params, n_actions, logger, decrease_eps=decrease_eps, )
+
+#%% Run the training, then testing
+#agent.train(map_id, experiment, nb_episodes)
+
+#agent.decrease_eps = lambda eps : 0
+##agent.test(map_id, experiment, nb_episodes_test)
 #
-#last_states = []
-#frame_skip = 4
-#screen, v, game_features = e.observe_state(a.variables, a.features)
-#eps = a.decrease_eps(1)
-#input_screen = a.read_input_state(screen, last_states)
-#action = a.act_opt(eps, input_screen)
-#r = e.make_action(action, frame_skip)
-#screen,v, game_features = e.observe_state(a.variables, a.features)
-#input_screen_next = a.read_input_state(screen, last_states, True)
+#r = process_game_statistics(experiment.stats)
+#with open('dqn_stats', 'wb') as fp:
+#    pickle.dump(r)
 #
-#replay_mem.add( screen1=last_states[-1],
-#                variables=list(v.values()),
-#                features=list(game_features.values()),
-#                action=action,
-#                reward=r,
-#                is_final=e.is_final(),
-#                screen2=input_screen_next
-#            )
+#list_collected_reward = agent.list_reward_collected
+#with open('dqn_rewards', 'wb') as fp:
+#    pickle.dump(list_collected_reward)
 
-
-
-
-
-
+#list_loss =  agent.list_loss
+#with open('dqn_loss', 'wb') as fp:
+#    pickle.dump(list_loss)

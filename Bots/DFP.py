@@ -106,6 +106,8 @@ class DFP_agent(Agent):
             pred_measure_calc = np.reshape(pred_measure, (self.nb_action, len(goal)))
             list_act = np.dot(pred_measure_calc,goal)
             action = np.argmax(list_act)
+            self.logger.info('pred : {}'.format(pred_measure))
+            self.logger.info('list_act : {}'.format(list_act))
             self.logger.info('opt action : {}'.format(action))
         return action
 

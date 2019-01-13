@@ -15,7 +15,7 @@ def normalize_layer(x):
     """
     DFP : subtract the mean along the action axis for the DFP network
     """
-    m = K.mean(x, axis=0, keepdims=True)
+    m = K.mean(x, axis=1, keepdims=True)
     return x-m
     
 
