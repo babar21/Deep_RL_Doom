@@ -5,8 +5,9 @@ Utils for nn buidling, optimization
 """
 
 from keras import backend as K
-import tensorflow as tf
 import keras.optimizers as kopt
+import h5py
+import pickle
 
 #%% DFP specific functions
 
@@ -48,3 +49,16 @@ def get_optimizer(optimizer_params):
         raise Exception('Unknown optimization method: "%s"' % method)
 
     return optim_fn
+
+#%% saving
+    
+def saving_stats(nb_episode, stats, network):
+    """
+    saving weights and stats from the experiment
+    """
+    # game stats
+    with open('game_stats_{}'.format(nb_episode),'wb') as fp:
+        pickle.dump(stats,fp)
+    
+    # network
+    network.save('network_{}'.format(nb_episode))

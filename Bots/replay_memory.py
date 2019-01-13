@@ -34,18 +34,17 @@ class ReplayMemory:
         if n_variables:
             self.variables = np.zeros((max_size, n_variables), dtype=np.int32)
         if n_features:
-            self.features = np.zeros((max_size, n_features), dtype=np.int32)
-            self.rewards = np.zeros((max_size, n_features), dtype=np.float32) # for DFP reward = features next state
-        else :
-            self.rewards = np.zeros(max_size, dtype=np.float32)
+            self.features = np.zeros((max_size, n_features), dtype=np.float32)
+        self.rewards = np.zeros(max_size, dtype=np.float32)
         if n_goals :
-            self.goals = np.zeros(max_size, n_goals, dtype=np.float32)
+            self.goals = np.zeros((max_size, n_goals), dtype=np.float32)
         self.actions = np.zeros(max_size, dtype=np.int32)
         self.isfinal = np.zeros(max_size, dtype=np.bool)
 
     @property
     def size(self):
         return self.max_size if self.full else self.cursor
+
 
     def add(self, screen1, action, reward, is_final, variables=None, features=None, screen2=None, goals=None):
         assert self.n_variables == 0 or self.n_variables == len(variables)
@@ -71,6 +70,7 @@ class ReplayMemory:
         self.cursor = 0
         self.full = False
 
+
     def get_batch(self, batch_size, hist_size):
         """
         Sample a batch of experiences from the replay memory.
@@ -84,7 +84,7 @@ class ReplayMemory:
             assert hist_size >= 1, 'history is required for LSTM, not for DFC'
         if self.type_network == 'DFP':
             assert type(hist_size) == list
-            l = hist_size
+            l = hist_size.copy()
             l.insert(0,0)
             hist_size = l[-1] # simple trick to use a unique code to look for history (both past and future)
 
@@ -123,8 +123,8 @@ class ReplayMemory:
         actions = self.actions[all_indices[:, :-1]]
         rewards = self.rewards[all_indices[:, :-1]]
         isfinal = self.isfinal[all_indices[:, :-1]]
-
-
+        
+        
         # check batch sizes
         assert idx.shape == (batch_size,)
         assert screens1.shape == (batch_size,n_hist+1) + self.screen_shape
