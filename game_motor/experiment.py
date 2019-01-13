@@ -21,9 +21,6 @@ import vizdoom as vzd
 from vizdoom import DoomGame, GameVariable
 from vizdoom import ScreenResolution, ScreenFormat, Mode
 
-# logger
-logger = getLogger()
-
 # Custom type
 GameState = namedtuple('State', ['screen', 'variables', 'features'])
 
@@ -75,7 +72,7 @@ EMBED_GAME_VARIABLES = {
         }
 
 STAT_KEYS = ['kills', 'deaths', 'suicides', 'frag_count', 'k/d',
-             'medikit', 'armor', 'found_weapon', 'ammo']
+             'medikit', 'armor', 'found_weapon', 'ammo', 'health']
 
 
 #%% Experiment class definition
@@ -92,6 +89,7 @@ class Experiment(object):
         scenario,
         action_builder,
         reward_builder,
+        logger,
         living_reward=0,
         custom_reward = False,
         score_variable='FRAGCOUNT',
@@ -188,6 +186,9 @@ class Experiment(object):
         
         # save game statistics for each episode (used for model comparison and reward shaping)
         self.stats = {}
+        
+        # use logging for DEBUG purpose
+        self.logger = logger
 
 #==============================================================================
 # Game start
@@ -248,13 +249,7 @@ class Experiment(object):
 #        args.append('-deathmatch')
         args.append('+sv_forcerespawn 1')
         args.append('+sv_noautoaim 1')
-
-        # respawn invincibility / distance
-        # players will be invulnerable for two second after spawning
-        # players will be spawned as far as possible from any other players
-#        args.append('+sv_respawnprotect %i' % self.respawn_protect)
-#        args.append('+sv_spawnfarthest %i' % self.spawn_farthest)
-
+        
         # agent name 
         args.append('+name %s' % self.name)
 
@@ -281,6 +276,7 @@ class Experiment(object):
 
         # initialize the game after player spawns
         self.initialize_game()
+        self.logger.info('start_game')
 
 
 #==============================================================================
@@ -332,11 +328,13 @@ class Experiment(object):
             if d > 0:
                 r.append('medikit')
                 stats['medikit'] += 1
+        stats['health'] = self.properties['health']
         
         # health lost
         d = self.properties['damage_count'] - self.prev_properties['damage_count']
         if d>0:
             r.append('health_lost')
+        
 
         # found armor
         d = self.properties['armor'] - self.prev_properties['armor']
@@ -526,6 +524,7 @@ class Experiment(object):
         list_r = self.update_game_statistics()
         if self.custom_reward and self.reward_builder :
             r = self.reward_builder.get_reward(list_r)
+        
         return r, screen, variables, game_features
         
 
