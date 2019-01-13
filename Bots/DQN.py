@@ -7,11 +7,12 @@ Created on Wed Jan  9 00:04:05 2019
 """
 
 from agent import Agent
-from keras.layers import Input, Conv2D, Flatten, Dense, Activation
-from keras.models import Model, Sequential
+from keras.layers import Conv2D, Flatten, Dense, Activation
+from keras.models import Sequential
 import cv2
 import numpy as np
-from utils_network import get_optimizer
+import pickle
+from utils_network import get_optimizer, saving_stats
 from replay_memory import ReplayMemory
 from parsers import parse_image_params_dqn
 
@@ -24,26 +25,32 @@ class DQN_agent(Agent):
     
     def __init__(self,
             image_params,
-            features = ['frag_count'],
+            nb_action,
+            logger,
+            features = ['health'],
             variables = ['ENNEMY'],
             nb_dense = 128,
-            nb_action = 107,
-            optimizer_params = {'type': 'adam'},
-            batch_size = 4,
-            replay_memory = {'max_size' : 10, 'screen_shape':(84,84)},
+            optimizer_params = {'type': 'rmsprop', 'lr': 0.00025},
+            batch_size = 64,
+            replay_memory = {'max_size' : 20000, 'screen_shape':(84,84)},
             decrease_eps = lambda epi : 0.05,
-            step_btw_train = 10,
+            step_btw_train = 100,
+            step_btw_save = 10000,
             depth = 4,
-            episode_time = 1000,
+            episode_time = 300,
             frame_skip = 4,
-            discount_factor = 0.9
+            discount_factor = 0.99
                 ):
+        self.logger = logger
         self.batch_size = batch_size
-        self.nb_action = 5
+        self.nb_action = nb_action
         self.replay_memory_p = replay_memory
-        self.network = self.create_network(image_params, nb_dense, nb_action, optimizer_params)
+        self.online_network = self.create_network(image_params, nb_dense, nb_action, optimizer_params)
+        self.target_network = self.online_network 
         self.decrease_eps = decrease_eps
         self.step_btw_train = step_btw_train
+        self.step_btw_save = step_btw_save
+        
         self.features = features
         self.variables = variables
         self.image_size = replay_memory['screen_shape'][:2]
@@ -51,7 +58,8 @@ class DQN_agent(Agent):
         self.episode_time = episode_time
         self.frame_skip = frame_skip
         self.discount_factor = discount_factor
-    
+
+
     def act_opt(self,eps, input_screen):
         """
         Choose action according to the eps-greedy policy using the network for inference
@@ -64,26 +72,31 @@ class DQN_agent(Agent):
         """        
         # eps-greedy policy used for exploration (if want full exploitation, just set eps to 0)
         if (np.random.rand() < eps) or (input_screen.shape[-1]<4):  # if not enough episode collected, act randomly
+            self.logger.info('input_screen shape is {}'.format(input_screen.shape))
             action = np.random.randint(0,self.nb_action)
+            self.logger.info('random action : {}'.format(action))
         else :
             # use trained network to choose action
 #            print('using network')
 #            print('input dim : {}'.format(input_screen[None,:,:,:].shape))
-            pred_q = self.network.predict(input_screen[None,:,:,:])
-#            print(pred_q.shape)
+            pred_q = self.online_network.predict(input_screen[None,:,:,:])
+            self.logger.info('q values are : {}'.format(pred_q))
             action = np.argmax(pred_q)
-        
+            self.logger.info('opt action : {}'.format(action))
         return action
     
     
-    def read_input_state(self,screen, last_states, after=False):
+    def read_input_state(self,screen, last_states, after=False,MAX_RANGE=255.):
         """
         Use grey level image and specific image definition and stacked frames
         """
-        if screen.shape[-1] != 3:
-            screen = np.moveaxis(screen,0,-1)
-        input_screen = cv2.cvtColor(screen, cv2.COLOR_BGR2GRAY)
-        input_screen = cv2.resize(input_screen, self.image_size)
+        screen_process = screen
+        if len(screen.shape) == 3:
+            if screen.shape[-1] != 3:
+                screen = np.moveaxis(screen,0,-1)
+            screen_process = cv2.cvtColor(screen, cv2.COLOR_BGR2GRAY)
+        input_screen = cv2.resize(screen_process, self.image_size)
+        input_screen = input_screen/MAX_RANGE
         screen = np.stack(last_states[-(self.depth-1):]+[input_screen], axis=-1)
         if not after:
             last_states.append(input_screen)
@@ -94,8 +107,10 @@ class DQN_agent(Agent):
     
     def train(self,map_id, experiment, nb_episodes):
         # variables
-        nb_step = 0
-        
+        nb_all_steps = 0
+        self.list_reward_collected = []
+        self.list_reward = []
+        self.loss = []
         # create game from experiment
         experiment.start(map_id=map_id,
                         episode_time=self.episode_time,
@@ -109,7 +124,92 @@ class DQN_agent(Agent):
         # run the game
         for episode in range(nb_episodes):
             print('episode {}'.format(episode))
-            experiment.reset()
+            self.logger.info('episode {}'.format(episode))
+            
+            if episode == 0:
+                experiment.new_episode()
+            else :
+                experiment.reset()
+                self.list_reward_collected.append(reward_collected)
+                
+                print('reward collected is {}'.format(reward_collected))
+                self.logger.info('last episode reward collected is {}'.format(reward_collected))
+            last_states = []
+            reward_collected = 0
+            nb_step = 0
+            
+            # decrease eps according to a fixed policy
+            eps = self.decrease_eps(episode)
+            self.logger.info('eps for episode {} is {}'.format(episode, eps))
+            
+            while not experiment.is_final():
+#                print(nb_step)
+                # get screen and features from the game 
+                screen, variables, game_features = experiment.observe_state(self.variables, self.features)
+    
+                # choose action
+                input_screen = self.read_input_state(screen, last_states)
+                action  = self.act_opt(eps, input_screen)
+                
+                # make action and observe resulting state
+                r, screen_next, variables_next, game_features_next = experiment.make_action(action, self.variables, self.features, self.frame_skip)
+                reward_collected += (self.discount_factor**nb_step)*r
+                self.list_reward.append(r)
+                if not experiment.is_final():
+                    input_screen_next = self.read_input_state(screen, last_states, True)
+                else:
+                    input_screen_next=None
+        
+                # save last processed screens / action in the replay memory
+                self.replay_mem.add(screen1=last_states[-1],
+                                action=action,
+                                reward=r,
+                                is_final=experiment.is_final(),
+                                screen2=input_screen_next
+                            )
+                
+                # train network
+                if nb_step >self.depth-1 :
+                    loss = self.train_network()
+                    self.loss.append(loss)
+                
+                # change network when needed
+                if (nb_step%self.step_btw_train==0) and nb_step >self.depth-1 :
+                    print('updating network')
+                    self.logger.info('updating network')
+                    self.target_network = self.online_network
+                    
+                # save important features on-line
+                if (episode%self.step_btw_save==0) and (episode>0):
+                    print('saving params')
+                    self.logger.info('saving params')
+                    saving_stats(episode, experiment.stats, self.online_network, 'DQN')
+                    with open('list_reward_eps_{}'.format(nb_all_steps)) as fp:
+                        pickle.dump(self.list_reward_collected,fp)
+                    
+                # count nb of step since start
+                nb_step += 1
+                nb_all_steps += 1
+
+                
+    def test(self,map_id, experiment, nb_episodes):
+        """
+        Test the trained bot
+        """
+        # variables
+        nb_step = 0
+        
+        # create game from experiment
+        experiment.start(map_id=map_id,
+                        episode_time=self.episode_time,
+                        log_events=False)
+        
+        for episode in range(nb_episodes):
+            print('episode {}'.format(episode))
+            if episode == 0:
+                experiment.new_episode()
+            else :
+                experiment.reset()
             last_states = []
             
             while not experiment.is_final():
@@ -125,31 +225,12 @@ class DQN_agent(Agent):
 #                print(input_screen.shape)
                 action  = self.act_opt(eps, input_screen)
                 
-                # make action and observe resulting state (plays the role of the reward)
-                r = experiment.make_action(action, self.frame_skip)
-#                print('reward is {}'.format(r))
-                if not experiment.is_final():
-                    screen_next, variables_next, game_features_next = experiment.observe_state(self.variables, self.features)
-                    input_screen_next = self.read_input_state(screen, last_states, True)
-                else:
-                    input_screen_next=None
-                # save last processed screens / features / action in the replay memory
-                self.replay_mem.add( screen1=last_states[-1],
-                                action=action,
-                                reward=r,
-                                is_final=experiment.is_final(),
-                                screen2=input_screen_next
-                            )
-                
-                # train network if needed
-                if (nb_step%self.step_btw_train==0) and nb_step !=0 :
-                    print('training')
-                    self.train_network()
-                
-                
+                # make action and observe resulting state
+                r, screen_next, variables_next, game_features_next = experiment.make_action(action, self.variables, self.features, self.frame_skip)
+        
                 # count nb of step since start
                 nb_step += 1
-        
+                
         
     def train_network(self):
         """
@@ -164,14 +245,14 @@ class DQN_agent(Agent):
         action = batch['actions'][:,-1]
         
         # compute target values
-        q2 = np.max(self.network.predict(input_screen2), axis=1)
+        q2 = np.max(self.target_network.predict(input_screen2), axis=1)
 #        print('q2 shape is {}'.format(q2.shape))
-        target_q = self.network.predict(input_screen1)
+        target_q = self.online_network.predict(input_screen1)
 #        print('tq shape is {}'.format(target_q.shape))
         target_q[range(target_q.shape[0]), action] = reward + self.discount_factor * (1 - isfinal) * q2
         
         # compute the gradient and update the weights
-        loss = self.network.train_on_batch(input_screen1, target_q)
+        loss = self.online_network.train_on_batch(input_screen1, target_q)
         
         return loss
     
