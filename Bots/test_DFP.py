@@ -27,7 +27,7 @@ list_action =[
 		'TURN_RIGHT', 
 		'MOVE_FORWARD']
 
-screen_resolution = 'RES_640X480'
+screen_resolution = 'RES_160X120'
 screen_format='GRAY8'
 living_reward = -1
 
