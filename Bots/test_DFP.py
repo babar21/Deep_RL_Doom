@@ -16,16 +16,16 @@ from logging import FileHandler
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s :: %(levelname)s :: %(message)s')
-file_handler = FileHandler('activity_dfp.log')
+file_handler = FileHandler('activity_dfp_2.log')
 file_handler.setLevel(logging.DEBUG)
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
 #%% Define the environment
 list_action =[
-		'MOVE_LEFT', 
-		'MOVE_RIGHT', 
-		'ATTACK']
+		'TURN_LEFT',
+		'TURN_RIGHT', 
+		'MOVE_FORWARD']
 
 screen_resolution = 'RES_640X480'
 screen_format='GRAY8'
