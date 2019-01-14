@@ -123,6 +123,7 @@ class Experiment(object):
         """
         # game resources
         game_filename = 'freedoom2.wad'
+        self.scenario = scenario
         self.scenario_path = os.path.join(PATH, 'scenarios/{}.wad'.format(scenario))
         self.game_path = os.path.join(PATH, game_filename)
 
@@ -522,10 +523,11 @@ class Experiment(object):
         # update game statistics and return custom rewards
         self.update_game_properties()
         list_r = self.update_game_statistics()
+        r_bis=0
         if self.custom_reward and self.reward_builder :
-            r = self.reward_builder.get_reward(list_r)
+            r_bis = self.reward_builder.get_reward(list_r)
         
-        return r, screen, variables, game_features
+        return r+r_bis, screen, variables, game_features
         
 
 

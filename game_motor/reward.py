@@ -23,9 +23,11 @@ class Reward(object):
     """
     Define and calculate custom rewards
     """
-    def __init__(self):
-        self.default_reward = DEFAULT_REWARD_VALUES
-        
+    def __init__(self, dic_reward=None, default=True):
+        if dic_reward : 
+            self.default_reward = parse_reward_name(dic_reward, default)
+        else :
+            self.default_reward = DEFAULT_REWARD_VALUES
         
     def get_reward(self, list_r):
         """
@@ -34,7 +36,24 @@ class Reward(object):
 #        assert all(set(list_r)) in list(self.default_reward)
         r=0
         for elt in list_r:
-            r += self.default_reward[elt]
+            r += self.default_reward.get(elt,0)
         return r
         
      
+def parse_reward_name(dic, default):
+    """
+    parse available rewards name
+    """
+    dic_reward = dict()
+    for name, value in dic.items():
+        if name in DEFAULT_REWARD_VALUES:
+            if default : 
+                dic_reward[name] = DEFAULT_REWARD_VALUES[name]
+            else :
+                dic_reward[name] = value
+    return dic_reward       
+            
+            
+            
+            
+            
