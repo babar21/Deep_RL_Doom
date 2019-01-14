@@ -30,14 +30,14 @@ class DQN_agent(Agent):
             features = ['health'],
             variables = ['ENNEMY'],
             nb_dense = 128,
-            optimizer_params = {'type': 'rmsprop', 'lr': 0.00025},
+            optimizer_params = {'type': 'rmsprop', 'lr': 0.00001, 'clipvalue':1},
             batch_size = 64,
-            replay_memory = {'max_size' : 20000, 'screen_shape':(84,84)},
+            replay_memory = {'max_size' : 10000, 'screen_shape':(84,84)},
             decrease_eps = lambda epi : 0.05,
-            step_btw_train = 100,
-            step_btw_save = 10000,
+            step_btw_train = 64,
+            step_btw_save = 2000,
             depth = 4,
-            episode_time = 300,
+            episode_time = 2100,
             frame_skip = 4,
             discount_factor = 0.99
                 ):
@@ -45,6 +45,10 @@ class DQN_agent(Agent):
         self.batch_size = batch_size
         self.nb_action = nb_action
         self.replay_memory_p = replay_memory
+        self.image_params = image_params
+        self.nb_action = nb_action
+        self.nb_dense = nb_dense
+        self.optimizer_params = optimizer_params
         self.online_network = self.create_network(image_params, nb_dense, nb_action, optimizer_params)
         self.target_network = self.online_network 
         self.decrease_eps = decrease_eps
@@ -177,19 +181,22 @@ class DQN_agent(Agent):
                 if (nb_step%self.step_btw_train==0) and nb_step >self.depth-1 :
                     print('updating network')
                     self.logger.info('updating network')
-                    self.target_network = self.online_network
-                    
-                # save important features on-line
-                if (episode%self.step_btw_save==0) and (episode>0):
-                    print('saving params')
-                    self.logger.info('saving params')
-                    saving_stats(episode, experiment.stats, self.online_network, 'DQN')
-                    with open('list_reward_eps_{}'.format(nb_all_steps)) as fp:
-                        pickle.dump(self.list_reward_collected,fp)
+                    self.target_network = self.create_network(self.image_params, self.nb_dense, self.nb_action, self.optimizer_params)
+                    weight = self.online_network.get_weights()
+                    self.target_network.set_weights(weight)
                     
                 # count nb of step since start
                 nb_step += 1
                 nb_all_steps += 1
+                
+        # save important features on-line
+        if (episode%self.step_btw_save==0) and (episode>0):
+            print('saving params')
+            self.logger.info('saving params')
+            saving_stats(episode, experiment.stats, self.online_network, 'DQN_{}'.format(experiment.scenario))
+            with open('DQN_list_reward_eps_{}'.format(nb_all_steps)) as fp:
+                pickle.dump(self.list_reward_collected,fp)
+                    
 
                 
     def test(self,map_id, experiment, nb_episodes):

@@ -32,14 +32,14 @@ class DFP_agent(Agent):
                  nb_action,
                  logger,
                  goal_mode = 'fixed',
-                 optimizer_params = {'type' : 'adam', 'beta_1': 0.94, 'epsilon':10e-4, 'lr':10e-4}, 
+                 optimizer_params = {'type' : 'adam', 'beta_1': 0.94, 'epsilon':10e-4, 'lr':10e-4, 'clipvalue':1}, 
                  leaky_param = 0.2,
                  features = ['frag_count', 'health', 'sel_ammo'],
                  variables = ['ENNEMY'],
                  replay_memory = {'max_size' : 20000, 'screen_shape':(84,84)},
                  decrease_eps = lambda epi : 0.1,
                  step_btw_train = 8,
-                 step_btw_save = 10000,
+                 step_btw_save = 2000,
                  episode_time = 2100,
                  frame_skip = 4,
                  batch_size = 64,
@@ -195,6 +195,7 @@ class DFP_agent(Agent):
                 
                 # choose action
                 input_screen, input_game_features = self.read_input_state(screen, game_features, last_states)
+                self.logger.info('features for episode {} is {}'.format(nb_all_steps, input_game_features))
                 action = self.act_opt(eps, input_screen, input_game_features, goal)
                 
                 # make action and observe resulting measurement (plays the role of the reward)
@@ -221,16 +222,16 @@ class DFP_agent(Agent):
                     loss = self.train_network(self.replay_mem)
                     self.loss.append(loss)
                 
-                # save important features on-line
-                if (episode%self.step_btw_save==0) and (episode>0):
-                    print('saving params')
-                    self.logger.info('saving params')
-                    saving_stats(episode, experiment.stats, self.network)
-                
                 # count nb of steps since start
                 nb_step += 1
                 nb_all_steps += 1
-                
+            
+            # save important features on-line
+            if (episode%self.step_btw_save==0) and (episode>0):
+                print('saving params')
+                self.logger.info('saving params')
+                saving_stats(episode, experiment.stats, self.network, 'DFP_{}'.format(experiment.scenario))
+            
         
     def train_network(self, replay_memory):
         """
