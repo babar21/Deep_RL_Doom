@@ -30,14 +30,14 @@ class DQN_agent(Agent):
             features = ['health'],
             variables = ['ENNEMY'],
             nb_dense = 128,
-            optimizer_params = {'type': 'rmsprop', 'lr': 0.00001, 'clipvalue':1},
+            optimizer_params = {'type': 'rmsprop', 'lr': 0.00002, 'clipvalue':1},
             batch_size = 64,
             replay_memory = {'max_size' : 10000, 'screen_shape':(84,84)},
             decrease_eps = lambda epi : 0.05,
             step_btw_train = 64,
             step_btw_save = 2000,
             depth = 4,
-            episode_time = 2100,
+            episode_time = 800,
             frame_skip = 4,
             discount_factor = 0.99
                 ):
@@ -135,7 +135,7 @@ class DQN_agent(Agent):
             else :
                 experiment.reset()
                 self.list_reward_collected.append(reward_collected)
-                
+                self.logger.info('eps_ellapsed is {}'.format(nb_step))
                 print('reward collected is {}'.format(reward_collected))
                 self.logger.info('last episode reward collected is {}'.format(reward_collected))
             last_states = []
@@ -173,12 +173,12 @@ class DQN_agent(Agent):
                             )
                 
                 # train network
-                if nb_step >self.depth-1 :
+                if nb_all_steps >self.depth-1 :
                     loss = self.train_network()
                     self.loss.append(loss)
                 
                 # change network when needed
-                if (nb_step%self.step_btw_train==0) and nb_step >self.depth-1 :
+                if (nb_all_steps%self.step_btw_train==0) and nb_step >self.depth-1 :
                     print('updating network')
                     self.logger.info('updating network')
                     self.target_network = self.create_network(self.image_params, self.nb_dense, self.nb_action, self.optimizer_params)

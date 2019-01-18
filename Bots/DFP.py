@@ -32,7 +32,7 @@ class DFP_agent(Agent):
                  nb_action,
                  logger,
                  goal_mode = 'fixed',
-                 optimizer_params = {'type' : 'adam', 'beta_1': 0.94, 'epsilon':10e-4, 'lr':10e-4, 'clipvalue':1}, 
+                 optimizer_params = {'type' : 'adam', 'beta_1': 0.94, 'epsilon':10e-4, 'lr':10e-4, 'clipvalue':10}, 
                  leaky_param = 0.2,
                  features = ['frag_count', 'health', 'sel_ammo'],
                  variables = ['ENNEMY'],
@@ -40,7 +40,7 @@ class DFP_agent(Agent):
                  decrease_eps = lambda epi : 0.1,
                  step_btw_train = 8,
                  step_btw_save = 2000,
-                 episode_time = 2100,
+                 episode_time = 1000,
                  frame_skip = 4,
                  batch_size = 64,
                  time_steps = [1,2,4,8,16,32],
@@ -178,6 +178,7 @@ class DFP_agent(Agent):
             if episode == 0:
                 experiment.new_episode()
             else :
+                self.logger.info('eps_ellapsed is {}'.format(nb_step))
                 experiment.reset()
             
             # variables 
@@ -216,7 +217,7 @@ class DFP_agent(Agent):
                                     goals=goal)
 
                 # train network if needed
-                if (nb_step%self.step_btw_train==0) and (nb_all_steps > self.time_steps[-1]) :
+                if (nb_step%self.step_btw_train==0) and (nb_all_steps > self.time_steps[-1]) and (nb_step>0):
                     print('updating network')
                     self.logger.info('updating network')
                     loss = self.train_network(self.replay_mem)
